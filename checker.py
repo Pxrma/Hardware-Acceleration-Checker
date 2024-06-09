@@ -1,9 +1,33 @@
 import os
+import sys
+import ctypes
 import winreg
-import webbrowser
-import time
 import json
 import subprocess
+import time
+import webbrowser
+from colorama import init, Fore, Style
+
+init()
+RED = Fore.RED
+GREEN = Fore.GREEN
+BOLD = Style.BRIGHT
+END = Style.RESET_ALL
+
+
+def is_admin():
+    try:
+        return ctypes.windll.shell32.IsUserAnAdmin()
+    except:
+        return False
+
+def run_as_admin():
+    if not is_admin():
+        ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, " ".join(sys.argv), None, 1)
+        sys.exit()
+
+run_as_admin()
+
 
 def registry_path_exists(hive, path):
     try:
@@ -19,12 +43,10 @@ def check_registry_key(key_path, value_name):
     except subprocess.CalledProcessError:
         return False
 
-import os
-
 def get_registry_value(key_path, value_name):
     try:
         result = subprocess.check_output(['reg', 'query', key_path, '/v', value_name], stderr=subprocess.STDOUT)
-        result = result.decode('utf-8', errors='ignore') 
+        result = result.decode('utf-8', errors='ignore')
         lines = result.split('\n')
         for line in lines:
             if value_name in line:
@@ -38,6 +60,13 @@ def set_registry_value(key_path, value_name, value):
 def is_chrome_installed():
     chrome_path = os.path.join(os.getenv('PROGRAMFILES'), 'Google', 'Chrome', 'Application', 'chrome.exe')
     return os.path.exists(chrome_path)
+
+def registry_path_exists(hive, path):
+    try:
+        winreg.OpenKey(getattr(winreg, hive), path)
+        return True
+    except FileNotFoundError:
+        return False
 
 def is_steam_installed():
     steam_path_to_check = "Software\\Valve\\Steam"
@@ -58,7 +87,7 @@ def is_gx_installed():
     return os.path.exists(gx_user_data_dir)
 
 def is_brave_installed():
-    brave_path = os.path.join(os.getenv('LOCALAPPDATA'), 'BraveSoftware', 'Brave-Browser',)
+    brave_path = os.path.join(os.getenv('LOCALAPPDATA'), 'BraveSoftware', 'Brave-Browser')
     return os.path.exists(brave_path)
 
 def is_firefox_installed():
@@ -69,280 +98,413 @@ def is_discord_installed():
     discord_path = os.path.join(os.getenv('APPDATA'), 'discord')
     return os.path.exists(discord_path)
 
-def main():
-    if not is_chrome_installed():
-        print("Chrome is not installed.")
-    else:
-        chrome_value = get_registry_value('HKLM\\SOFTWARE\\Policies\\Google\\Chrome', 'HardwareAccelerationModeEnabled')
+def get_hardware_acceleration_status():
+    status = {}
+    if is_chrome_installed():
+        chrome_status = get_registry_value('HKLM\\SOFTWARE\\Policies\\Google\\Chrome', 'HardwareAccelerationModeEnabled')
+        status['Chrome'] = 'Enabled' if chrome_status == '0x1' else 'Disabled' if chrome_status == '0x0' else 'Unknown'
 
-    if not is_steam_installed():
-        print("Steam is not installed.")
-    else:
-        h264_value = get_registry_value('HKEY_CURRENT_USER\\Software\\Valve\\Steam', 'H264HWAccel')
-        gpu_value = get_registry_value('HKEY_CURRENT_USER\\Software\\Valve\\Steam', 'GPUAccelWebViewsV3')
-        steam_ha = 'enabled' if h264_value != "0x0" and gpu_value != "0x0" else 'disabled'
+    if is_steam_installed():
+        steam_status = get_registry_value('HKEY_CURRENT_USER\\Software\\Valve\\Steam', 'GPUAccelWebViewsV3')
+        status['Steam'] = 'Enabled' if steam_status == '0x1' else 'Disabled' if steam_status == '0x0' else 'Unknown'
 
-    # Spotify
-    if not is_spotify_installed():
-        print("Spotify is not installed.")
-    else:
+    if is_spotify_installed():
         spotify_prefs_file = os.path.join(os.getenv('APPDATA'), 'Spotify', 'prefs')
-        spotify_value = 'unknown'
-        try:
+        if os.path.exists(spotify_prefs_file):
             with open(spotify_prefs_file, 'r', encoding='utf-8') as file:
-                for line in file:
-                    if 'ui.hardware_acceleration=false' in line:
-                        spotify_value = 'disabled'
-                        break
-                else:
-                    spotify_value = 'enabled'
-        except FileNotFoundError:
-            spotify_value = 'unknown'
+                content = file.read()
+                status['Spotify'] = 'Disabled' if 'ui.hardware_acceleration=false' in content else 'Enabled'
 
-    # Brave
-    if not is_brave_installed():
-        print("Brave is not installed.")
-    else:
-        brave_file_path = os.path.join(os.getenv('LOCALAPPDATA'), 'BraveSoftware', 'Brave-Browser', 'User Data', 'Local State')
-        brave_ha = None
-        try:
-            with open(brave_file_path, 'r', encoding='utf-8') as file:
-                data = json.load(file)
-                brave_ha = 'enabled' if data.get("hardware_acceleration_mode", {}).get("enabled", False) else 'disabled'
-        except (FileNotFoundError, json.JSONDecodeError):
-            brave_ha = 'unknown'
-
-    # Firefox
-    if not is_firefox_installed():
-        print("Firefox is not installed.")
-    else:
-        firefox_pref_loc = os.path.join(os.getenv('APPDATA'),'Mozilla', 'Firefox', 'Profiles')
-        ff_acc = 0
-        profile_found = False
-        for profile_name in os.listdir(firefox_pref_loc):
-            if profile_name.endswith('default-release'):
-                PROFILE_PATH = os.path.join(firefox_pref_loc, profile_name)
-                profile_found = True
-                break
-        if not profile_found:
-            print("Profile folder ending with 'default-release' not found.")
-            return
-        PREFS_FILE = os.path.join(PROFILE_PATH, 'prefs.js')
-        if os.path.exists(PREFS_FILE):
-            with open(PREFS_FILE, 'r', encoding='utf-8') as prefs_file:
-                ff_acc = 0 if 'user_pref("layers.acceleration.disabled", true);' in prefs_file.read() else 1
-        else:
-            print("Firefox preference file not found!")
-            
-    # Discord
-    if not is_discord_installed():
-        print("Discord is not installed.")
-    else:
-        dc_pref_loc=os.path.join(os.getenv('APPDATA'),'discord')
-        dc_acc = "Enabled"
-        dc_cfg_path = os.path.join(dc_pref_loc, 'settings.json')
-        if os.path.exists(dc_cfg_path):
-            with open(dc_cfg_path, 'r', encoding='utf-8') as dc_cfg_file:
-                dc_cfg_content = json.load(dc_cfg_file)
-                dc_acc = 0 if not dc_cfg_content.get('enableHardwareAcceleration', True) else 1
-        else:
-            print("settings.json file not found.")
-
-    #EDGE 
-    if not is_edge_installed():
-        print("Edge is not installed.")
-    else:
+    if is_edge_installed():
         edge_cfg_path = os.path.join(edge_user_data_dir, 'Local State')
         if os.path.exists(edge_cfg_path):
-            with open(edge_cfg_path, 'r', encoding='utf-8') as edge_cfg_file:
-                edge_cfg_content = json.load(edge_cfg_file)
-                hardware_acceleration_enabled = edge_cfg_content.get('hardware_acceleration_mode', {}).get('enabled', False)
-                edge_acc = 1 if hardware_acceleration_enabled else 0
-        else:
-            print("Local State file not found.")
-    
-    #GX 
-    #global gx_acc
-    if not is_gx_installed():
-        print("OperaGX is not installed.")
-    else:
-        gx_cfg_path = os.path.join
-    if not is_gx_installed():
-        print("OperaGX is not installed.")
-    else:
+            with open(edge_cfg_path, 'r', encoding='utf-8') as file:
+                data = json.load(file)
+                status['Edge'] = 'Enabled' if data.get('hardware_acceleration_mode', {}).get('enabled') else 'Disabled'
+
+    if is_gx_installed():
         gx_cfg_path = os.path.join(gx_user_data_dir, 'Local State')
         if os.path.exists(gx_cfg_path):
-            with open(gx_cfg_path, 'r', encoding='utf-8') as gx_cfg_file:
-                gx_cfg_content = json.load(gx_cfg_file)
-                hardware_acceleration_enabled = gx_cfg_content.get('hardware_acceleration_mode', {}).get('enabled', False)
-                gx_acc = 1 if hardware_acceleration_enabled else 0
-        else:
-            print("Local State file not found.")
+            with open(gx_cfg_path, 'r', encoding='utf-8') as file:
+                data = json.load(file)
+                status['Opera GX'] = 'Enabled' if data.get('hardware_acceleration_mode') else 'Disabled'
 
     if is_brave_installed():
-        print(f'Brave Hardware Acceleration is currently {"enabled" if brave_ha == "enabled" else "disabled"}')
-    if is_chrome_installed():
-        print(f'Chrome Hardware Acceleration Mode is currently {"enabled" if chrome_value == "1" else "disabled"}.')
-    if is_steam_installed():
-        print(f'Steam Hardware Acceleration is currently {"disabled" if steam_ha == "disabled" else "enabled"}.')
-    if is_spotify_installed():
-        print(f'Spotify Hardware Acceleration is currently {"enabled" if spotify_value == "enabled" else "disabled"}.')
+        brave_file_path = os.path.join(os.getenv('LOCALAPPDATA'), 'BraveSoftware', 'Brave-Browser', 'User Data', 'Local State')
+        if os.path.exists(brave_file_path):
+            with open(brave_file_path, 'r', encoding='utf-8') as file:
+                data = json.load(file)
+                status['Brave'] = 'Enabled' if data.get("hardware_acceleration_mode", {}).get("enabled") else 'Disabled'
+
     if is_firefox_installed():
-        print(f'Firefox Hardware Acceleration is currently {"enabled" if ff_acc == 1 else "disabled"}.')
+        firefox_pref_loc = os.path.join(os.getenv('APPDATA'),'Mozilla', 'Firefox', 'Profiles')
+        for profile_name in os.listdir(firefox_pref_loc):
+            if profile_name.endswith('default-release'):
+                profile_path = os.path.join(firefox_pref_loc, profile_name)
+                prefs_file = os.path.join(profile_path, 'prefs.js')
+                if os.path.exists(prefs_file):
+                    with open(prefs_file, 'r', encoding='utf-8') as file:
+                        content = file.read()
+                        status['Firefox'] = 'Disabled' if 'user_pref("layers.acceleration.disabled", true);' in content else 'Enabled'
+
     if is_discord_installed():
-        print(f'Discord Hardware Acceleration is currently {"enabled" if dc_acc == 1 else "disabled"}.')
-    if is_edge_installed():
-        print(f'MS edge Hardware Acceleration is currently {"enabled" if edge_acc == 1 else "disabled"}.')
-    if is_gx_installed():
-        print(f'Opera gx Hardware Acceleration is currently {"enabled" if gx_acc == 1 else "disabled"}.')
-    print("")
-    
-    # Edge
-    if is_edge_installed():
-        edge_cfg_path = os.path.join(edge_user_data_dir, 'Local State')
-    if os.path.exists(edge_cfg_path):
-        with open(edge_cfg_path, 'r', encoding='utf-8') as edge_cfg_file:
-            lines = edge_cfg_file.readlines()
-        edge_choice = input(f"Keep Edge's Acceleration {'ON?' if edge_acc == 1 else 'OFF?'} (0=Off, 1=On)? ")
-        if edge_choice in ['0', '1']:
-            with open(edge_cfg_path, 'w', encoding='utf-8') as edge_cfg_file:
-                for line in lines:
-                    if 'hardware_acceleration_mode":{"enabled":' in line:
-                        if edge_choice == '1':
-                            line = line.replace('"hardware_acceleration_mode":{"enabled":false}', '"hardware_acceleration_mode":{"enabled":true}')
-                        else:
-                            line = line.replace('"hardware_acceleration_mode":{"enabled":true}', '"hardware_acceleration_mode":{"enabled":false}')
-                    edge_cfg_file.write(line)
-            print("Hardware acceleration is now", "ON" if edge_choice == '1' else "OFF")
-        else:
-            print('Invalid choice for Edge. Please enter 0 for off or 1 for on.')
-    else:
-        print("Local State file not found.")
+        discord_cfg_path = os.path.join(os.getenv('APPDATA'), 'discord', 'settings.json')
+        if os.path.exists(discord_cfg_path):
+            with open(discord_cfg_path, 'r', encoding='utf-8') as file:
+                data = json.load(file)
+                status['Discord'] = 'Enabled' if data.get('enableHardwareAcceleration') else 'Disabled'
 
-    # Chrome
-    if is_chrome_installed():
-        chrome_choice = input(f"Keep Chrome's Acceleration {'ON?' if chrome_value == '1' else 'OFF?'} (0=Off, 1=On)? ")
-        if chrome_choice in ['0', '1']:
-            set_registry_value('HKLM\\SOFTWARE\\Policies\\Google\\Chrome', 'HardwareAccelerationModeEnabled',int(chrome_choice))
+    return status
+
+def remove_hardware_acceleration_prefs(profile_path):
+    prefs_file = os.path.join(profile_path, 'prefs.js')
+    if os.path.exists(prefs_file):
+        with open(prefs_file, 'r', encoding='utf-8') as file:
+            lines = file.readlines()
+        with open(prefs_file, 'w', encoding='utf-8') as file:
+            for line in lines:
+                if not line.strip().startswith('user_pref("layers.acceleration.disabled"'):
+                    file.write(line)
+
+def print_hardware_acceleration_status(status):
+    print(f"{BOLD}Hardware Acceleration Status:{END}")
+    for program, acceleration_status in status.items():
+        if acceleration_status == 'Enabled':
+            print(f"{program}: {GREEN}{acceleration_status}{END}")
+        elif acceleration_status == 'Disabled':
+            print(f"{program}: {RED}{acceleration_status}{END}")
         else:
-            print('Invalid choice for Chrome. Please enter 0 for off or 1 for on.')
-            return
-        
-    # Steam
-    if is_steam_installed():
+            print(f"{program}: {acceleration_status}")
+banner = f"""
+{Fore.MAGENTA}
+██   ██  █████       ██████ ██   ██ ███████  ██████ ██   ██ ███████ ██████  
+██   ██ ██   ██     ██      ██   ██ ██      ██      ██  ██  ██      ██   ██ 
+███████ ███████     ██      ███████ █████   ██      █████   █████   ██████  
+██   ██ ██   ██     ██      ██   ██ ██      ██      ██  ██  ██      ██   ██ 
+██   ██ ██   ██      ██████ ██   ██ ███████  ██████ ██   ██ ███████ ██   ██
+{Style.RESET_ALL}
+"""
+def reset_and_check_status():
+    os.system('cls' if os.name == 'nt' else 'clear')  # Bildschirm löschen
+    print(banner)
+    hardware_acceleration_status = get_hardware_acceleration_status()  # Aktuellen Status abrufen
+    print_hardware_acceleration_status(hardware_acceleration_status)  # Aktuellen Status ausgeben
+
+
+print(banner)
+hardware_acceleration_status = get_hardware_acceleration_status()
+print_hardware_acceleration_status(hardware_acceleration_status)
+
+def success_print():
+        time.sleep(1)
+        reset_and_check_status()
         print("")
-        steam_choice = input(f"Keep Steam's Acceleration {'ON?' if steam_ha == 'enabled' else 'OFF?'} (0=Off, 1=On)? ")
-        if steam_choice == "1":
-            set_registry_value('HKEY_CURRENT_USER\\Software\\Valve\\Steam', 'H264HWAccel', 1)
-            set_registry_value('HKEY_CURRENT_USER\\Software\\Valve\\Steam', 'GPUAccelWebViewsV3', 1)
-            print("Turning Steam's Hardware Acceleration ON.")
-        elif steam_choice == "0":
-            set_registry_value('HKEY_CURRENT_USER\\Software\\Valve\\Steam', 'H264HWAccel', 0)
-            set_registry_value('HKEY_CURRENT_USER\\Software\\Valve\\Steam', 'GPUAccelWebViewsV3', 0)
-            print("Steam's Hardware Acceleration OFF.")
-        else:
-            print('Invalid choice for Steam. Please enter 0 for off or 1 for on.')
-            return
-        
-    # Spotify
-    if is_spotify_installed():
-        print("")
-        spotify_choice = input(f"Keep Spotify's Hardware Acceleration {'ON?' if spotify_value == 'enabled' else 'OFF?'} (0=Off, 1=On)? ")
-        try:
-            with open(spotify_prefs_file, 'r', encoding='utf-8') as file:
-                lines = file.readlines()
-        except FileNotFoundError:
-            print("Spotify preferences file not found.")
-            return
+        print(f"{GREEN}Everything has been configured, you may close this window now")
+        print(f"{GREEN}Good Luck and Have fun :)")
+        webbrowser.open('https://twitter.com/PxrmaFX')
+        webbrowser.open('https://twitter.com/frequencycs')
+        input("")
 
-        try:
-            with open(spotify_prefs_file, 'w', encoding='utf-8') as file:
-                if spotify_choice == "0":
-                    if not any("ui.hardware_acceleration=false" in line for line in lines):
-                        lines.append("ui.hardware_acceleration=false\n")
-                    file.writelines(lines)
-                    print("Turned Spotify's hardware acceleration OFF.")
-                elif spotify_choice == "1":
-                    file.writelines(line for line in lines if "ui.hardware_acceleration=false" not in line)
-                    print("Turned Spotify's hardware acceleration ON.")
-                else:
-                    print('Invalid choice for Spotify. Please enter 0 for off or 1 for on.')
-                    return
-        except Exception as e:
-            print(f"An error occurred while updating Spotify preferences: {e}")
-            return
 
-    # Brave
-    if is_brave_installed():
-        brave_choice = input(f"Keep Brave's Hardware Acceleration {'ON?' if brave_ha == 'enabled' else 'OFF?'} (0=Off, 1=On)? ")
-        if brave_choice in ["0", "1"]:
-            data["hardware_acceleration_mode"]["enabled"] = (brave_choice == "1")
-            with open(brave_file_path, 'w', encoding='utf-8') as file:
-                json.dump(data, file, indent=4)
-            print(f"Turned Brave's hardware acceleration {'OFF' if brave_choice == '0' else 'ON'}.")
-        else:
-            print('Invalid choice for Brave. Please enter 0 for off or 1 for on.')
-            return
 
-        ff_choice = input(f"Keep Firefox's Hardware Acceleration {'ON?' if ff_acc == 1 else 'OFF?'} (0=Off, 1=On)? ")
-        if ff_choice == '1':
-            with open(PREFS_FILE, 'w', encoding='utf-8') as prefs_file:
-                for line in lines:
-                    if 'user_pref("layers.acceleration.disabled", true);' in line:
-                        prefs_file.write(line.replace('user_pref("layers.acceleration.disabled", true);', ''))
+
+def disable_hardware_acceleration_for_all_programs(enable):
+    action = 'Enabled' if enable else 'Disabled'
+    try:
+        if is_chrome_installed():
+            set_registry_value('HKLM\\SOFTWARE\\Policies\\Google\\Chrome', 'HardwareAccelerationModeEnabled', 1 if enable else 0)
+            print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Chrome.{END}")
+        if is_steam_installed():
+            set_registry_value('HKEY_CURRENT_USER\\Software\\Valve\\Steam', 'H264HWAccel', 1 if enable else 0)
+            set_registry_value('HKEY_CURRENT_USER\\Software\\Valve\\Steam', 'GPUAccelWebViewsV3', 1 if enable else 0)
+            print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Steam.{END}")
+
+# Spotify
+        if is_spotify_installed():
+            spotify_prefs_file = os.path.join(os.getenv('APPDATA'), 'Spotify', 'prefs')
+            try:
+                with open(spotify_prefs_file, 'r', encoding='utf-8') as file:
+                    lines = file.readlines()
+                with open(spotify_prefs_file, 'w', encoding='utf-8') as file:
+                    if enable:
+                        lines = [line for line in lines if "ui.hardware_acceleration=false" not in line]
                     else:
-                        prefs_file.write(line)
-            print("Hardware acceleration is now ON.")
-        elif ff_choice == '0':
-            with open(PREFS_FILE, 'a', encoding='utf-8') as prefs_file:
-                prefs_file.write('user_pref("layers.acceleration.disabled", true);\n')
-            print("Keeping hardware acceleration OFF.")
-        else:
-            print('Invalid choice for Firefox. Please enter 0 for off or 1 for on.')
-            return
+                        if not any("ui.hardware_acceleration=false" in line for line in lines):
+                            lines.append("ui.hardware_acceleration=false\n")
+                    file.writelines(lines)
+                print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Spotify.{END}")
+            except FileNotFoundError:
+                print(f"{RED}Spotify preferences file not found.{END}")
 
-    # Discord
-    if is_discord_installed():
-        dc_choice = input(f"Keep Discord's Hardware Acceleration {'ON?' if dc_acc == 1 else 'OFF?'} (0=Off, 1=On)? ")
-        if dc_choice in ["0", "1"]:
-            with open(dc_cfg_path, 'r', encoding='utf-8') as file:
-                dc_cfg_content = json.load(file)
+# Brave
+        if is_brave_installed():
+            brave_file_path = os.path.join(os.getenv('LOCALAPPDATA'), 'BraveSoftware', 'Brave-Browser', 'User Data', 'Local State')
+            try:
+                with open(brave_file_path, 'r', encoding='utf-8') as file:
+                    data = json.load(file)
+                data["hardware_acceleration_mode"]["enabled"] = enable
+                with open(brave_file_path, 'w', encoding='utf-8') as file:
+                    json.dump(data, file, indent=4)
+                print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Brave.{END}")
+            except (FileNotFoundError, json.JSONDecodeError):
+                print(f"{RED}Brave preferences file not found or invalid.{END}")
 
-            dc_cfg_content['enableHardwareAcceleration'] = (dc_choice == "1")
-
-            with open(dc_cfg_path, 'w', encoding='utf-8') as file:
-                json.dump(dc_cfg_content, file, indent=4)
-
-            print(f"Turned Discord's hardware acceleration {'OFF' if dc_choice == '0' else 'ON'}.")
-        else:
-            print('Invalid choice for Discord. Please enter 0 for off or 1 for on.')
-
-    # GX
-    if is_gx_installed():
-        gx_cfg_path = os.path.join(gx_user_data_dir, 'Local State')
-        if os.path.exists(gx_cfg_path):
-            with open(gx_cfg_path, 'r', encoding='utf-8') as gx_cfg_file:
-                lines = gx_cfg_file.readlines()
-            gx_choice = input(f"Keep OperaGX's Acceleration {'ON?' if gx_acc == 1 else 'OFF?'} (0=Off, 1=On)? ")
-            if gx_choice in ['0', '1']:
-                with open(gx_cfg_path, 'w', encoding='utf-8') as gx_cfg_file:
-                    for line in lines:
-                        if 'hardware_acceleration_mode":{"enabled":' in line:
-                            if gx_choice == '1':
-                                line = line.replace('"hardware_acceleration_mode":{"enabled":false}', '"hardware_acceleration_mode":{"enabled":true}')
-                            else:
-                                line = line.replace('"hardware_acceleration_mode":{"enabled":true}', '"hardware_acceleration_mode":{"enabled":false}')
-                        gx_cfg_file.write(line)
-                print("Hardware acceleration is now", "ON" if gx_choice == '1' else "OFF")
+# Firefox
+        if is_firefox_installed():
+            firefox_pref_loc = os.path.join(os.getenv('APPDATA'),'Mozilla', 'Firefox', 'Profiles')
+            profile_found = False
+            for profile_name in os.listdir(firefox_pref_loc):
+                if profile_name.endswith('default-release'):
+                    profile_path = os.path.join(firefox_pref_loc, profile_name)
+                    profile_found = True
+                    break
+            if profile_found:
+                prefs_file = os.path.join(profile_path, 'prefs.js')
+                if os.path.exists(prefs_file):
+                    with open(prefs_file, 'a', encoding='utf-8') as file:
+                        remove_hardware_acceleration_prefs(profile_path)
+                        file.write(f'user_pref("layers.acceleration.disabled", {"false" if enable else "true"});\n')
+                    print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Firefox.{END}")
+                else:
+                    print(f"{RED}Firefox preference file not found.{END}")
             else:
-                print('Invalid choice for OperaGX. Please enter 0 for off or 1 for on.')
+                print(f"{RED}Firefox profile not found.{END}")
+
+# Discord
+        if is_discord_installed():
+            discord_cfg_path = os.path.join(os.getenv('APPDATA'), 'discord', 'settings.json')
+            if os.path.exists(discord_cfg_path):
+                try:
+                    with open(discord_cfg_path, 'r', encoding='utf-8') as file:
+                        data = json.load(file)
+                    data['enableHardwareAcceleration'] = enable
+                    with open(discord_cfg_path, 'w', encoding='utf-8') as file:
+                        json.dump(data, file, indent=4)
+                    print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Discord.{END}")
+                except (FileNotFoundError, json.JSONDecodeError):
+                    print(f"{RED}Discord preferences file not found or invalid.{END}")
+
+# Edge
+        if is_edge_installed():
+            edge_cfg_path = os.path.join(edge_user_data_dir, 'Local State')
+            if os.path.exists(edge_cfg_path):
+                try:
+                    with open(edge_cfg_path, 'r', encoding='utf-8') as file:
+                        data = json.load(file)
+                    data['hardware_acceleration_mode'] = {'enabled': enable}
+                    with open(edge_cfg_path, 'w', encoding='utf-8') as file:
+                        json.dump(data, file, indent=4)
+                    print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Edge.{END}")
+                except (FileNotFoundError, json.JSONDecodeError):
+                    print(f"{RED}Edge preferences file not found or invalid.{END}")
+
+# Opera GX
+        if is_gx_installed():
+            gx_cfg_path = os.path.join(gx_user_data_dir, 'Local State')
+            if os.path.exists(gx_cfg_path):
+                try:
+                    with open(gx_cfg_path, 'r', encoding='utf-8') as file:
+                        data = json.load(file)
+                    data['hardware_acceleration_mode'] = enable
+                    with open(gx_cfg_path, 'w', encoding='utf-8') as file:
+                        json.dump(data, file, indent=4)
+                    print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Opera GX.{END}")
+                    success_print()
+                except (FileNotFoundError, json.JSONDecodeError):
+                    print(f"{RED}Opera GX preferences file not found or invalid.{END}")
+    except Exception as e:
+        print(f"{RED}An error occurred: {e}{END}")
+
+
+def ask_all_or_individual():
+    while True:
+        print("")
+        print("Do you want to change hardware acceleration settings for all programs or individually?")
+        print("1. All programs")
+        print("2. Individually")
+        choice = input("Enter your choice (1 or 2): ").strip()
+        if choice == '1' or choice == '2':
+            return choice
         else:
-            print("Local State file not found.")
+            reset_and_check_status()
+            print("")
+            print(f"{RED}Invalid choice. Please enter 1 or 2.{END}")
 
-    print("Thank you and take care, @frequencycs")
-    time.sleep(2)
-    webbrowser.open('https://twitter.com/frequencycs')
-    webbrowser.open('https://fpsheaven.com/services')
+def main():
+    choice = ask_all_or_individual()
+    reset_and_check_status()
+    last_query_success = False
+    if choice == '1':
+        print("")
+        while True:
+            enable_input = input(f"Do you want to enable or disable hardware acceleration? ({GREEN}1{END} for Enable, {RED}2{END} for Disable): ").strip()
+            if enable_input == '1':
+                enable = True
+                break
+            elif enable_input == '2':
+                enable = False
+                break
+            else:
+                print(f"{RED}Invalid input. Please enter 1 or 2.{END}")
+        disable_hardware_acceleration_for_all_programs(enable)
+        last_query_success = True  
+        success_print()
+    elif choice == '2':
+        programs = [
+            ("Chrome", is_chrome_installed),
+            ("Steam", is_steam_installed),
+            ("Spotify", is_spotify_installed),
+            ("Brave", is_brave_installed),
+            ("Firefox", is_firefox_installed),
+            ("Discord", is_discord_installed),
+            ("Edge", is_edge_installed),
+            ("Opera GX", is_gx_installed)
+        ]
+        for program, is_installed_func in programs:
+            if is_installed_func():
+                reset_and_check_status()
+                print("")
+                while True:
+                    enable_input = input(f"Do you want to disable Hardware Acceleration for {BOLD}{program}{Style.RESET_ALL}? ({GREEN}1{END} for Enable, {RED}2{END} for Disable): ").strip()
+                    if enable_input == '1':
+                        enable = True
+                        break
+                    elif enable_input == '2':
+                        enable = False
+                        break
+                    else:
+                        reset_and_check_status()
+                        print("")
+                        print(f"{RED}Invalid input. Please enter 1 or 2.{END}")
+                disable_hardware_acceleration_for_program(program, enable)
+                last_query_success = True  
+        if last_query_success:
+            reset_and_check_status()
+            success_print()
+    else:
+        reset_and_check_status()
+        print("")
+        print(f"{RED}Invalid choice. Please enter 1 or 2.{END}")
 
-if __name__ == '__main__':
+# Chrome        
+def disable_hardware_acceleration_for_program(program_name, enable):
+    action = 'Enabled' if enable else 'Disabled'
+    try:
+        if program_name == "Chrome":
+            set_registry_value('HKLM\\SOFTWARE\\Policies\\Google\\Chrome', 'HardwareAccelerationModeEnabled', 1 if enable else 0)
+            print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Chrome.{END}")
+        elif program_name == "Steam":
+            set_registry_value('HKEY_CURRENT_USER\\Software\\Valve\\Steam', 'H264HWAccel', 1 if enable else 0)
+            set_registry_value('HKEY_CURRENT_USER\\Software\\Valve\\Steam', 'GPUAccelWebViewsV3', 1 if enable else 0)
+            print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Steam.{END}")
+
+
+# Spotify            
+        elif program_name == "Spotify":
+            spotify_prefs_file = os.path.join(os.getenv('APPDATA'), 'Spotify', 'prefs')
+            try:
+                with open(spotify_prefs_file, 'r', encoding='utf-8') as file:
+                    lines = file.readlines()
+                with open(spotify_prefs_file, 'w', encoding='utf-8') as file:
+                    if enable:
+                        lines = [line for line in lines if "ui.hardware_acceleration=false" not in line]
+                    else:
+                        if not any("ui.hardware_acceleration=false" in line for line in lines):
+                            lines.append("ui.hardware_acceleration=false\n")
+                    file.writelines(lines)
+                print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Spotify.{END}")
+            except FileNotFoundError:
+                print(f"{RED}Spotify preferences file not found.{END}")
+
+
+
+# Brave
+        elif program_name == "Brave":
+            brave_file_path = os.path.join(os.getenv('LOCALAPPDATA'), 'BraveSoftware', 'Brave-Browser', 'User Data', 'Local State')
+            try:
+                with open(brave_file_path, 'r', encoding='utf-8') as file:
+                    data = json.load(file)
+                data["hardware_acceleration_mode"]["enabled"] = enable
+                with open(brave_file_path, 'w', encoding='utf-8') as file:
+                    json.dump(data, file, indent=4)
+                print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Brave.{END}")
+            except (FileNotFoundError, json.JSONDecodeError):
+                print(f"{RED}Brave preferences file not found or invalid.{END}")
+
+
+
+# Firefox
+        elif program_name == "Firefox":
+            firefox_pref_loc = os.path.join(os.getenv('APPDATA'),'Mozilla', 'Firefox', 'Profiles')
+            profile_found = False
+            for profile_name in os.listdir(firefox_pref_loc):
+                if profile_name.endswith('default-release'):
+                    profile_path = os.path.join(firefox_pref_loc, profile_name)
+                    profile_found = True
+                    break
+            if profile_found:
+                prefs_file = os.path.join(profile_path, 'prefs.js')
+                if os.path.exists(prefs_file):
+                    with open(prefs_file, 'a', encoding='utf-8') as file:
+                        remove_hardware_acceleration_prefs(profile_path)
+                        file.write(f'user_pref("layers.acceleration.disabled", {"false" if enable else "true"});\n')
+                    print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Firefox.{END}")
+                else:
+                    print(f"{RED}Firefox preference file not found.{END}")
+            else:
+                print(f"{RED}Firefox profile not found.{END}")
+
+
+# Discord                
+        elif program_name == "Discord":
+            discord_cfg_path = os.path.join(os.getenv('APPDATA'), 'discord', 'settings.json')
+            if os.path.exists(discord_cfg_path):
+                try:
+                    with open(discord_cfg_path, 'r', encoding='utf-8') as file:
+                        data = json.load(file)
+                    data['enableHardwareAcceleration'] = enable
+                    with open(discord_cfg_path, 'w', encoding='utf-8') as file:
+                        json.dump(data, file, indent=4)
+                    print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Discord.{END}")
+                except (FileNotFoundError, json.JSONDecodeError):
+                    print(f"{RED}Discord preferences file not found or invalid.{END}")
+
+
+# Edge                    
+        elif program_name == "Edge":
+            edge_cfg_path = os.path.join(edge_user_data_dir, 'Local State')
+            if os.path.exists(edge_cfg_path):
+                try:
+                    with open(edge_cfg_path, 'r', encoding='utf-8') as file:
+                        data = json.load(file)
+                    data['hardware_acceleration_mode'] = {'enabled': enable}
+                    with open(edge_cfg_path, 'w', encoding='utf-8') as file:
+                        json.dump(data, file, indent=4)
+                    print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Edge.{END}")
+                except (FileNotFoundError, json.JSONDecodeError):
+                    print(f"{RED}Edge preferences file not found or invalid.{END}")
+
+
+# Opera GX                    
+        elif program_name == "Opera GX":
+            gx_cfg_path = os.path.join(gx_user_data_dir, 'Local State')
+            if os.path.exists(gx_cfg_path):
+                try:
+                    with open(gx_cfg_path, 'r', encoding='utf-8') as file:
+                        data = json.load(file)
+                    data['hardware_acceleration_mode'] = enable
+                    with open(gx_cfg_path, 'w', encoding='utf-8') as file:
+                        json.dump(data, file, indent=4)
+                    print(f"{GREEN if enable else RED}{action} Hardware Acceleration for Opera GX.{END}")   
+                except (FileNotFoundError, json.JSONDecodeError):
+                    print(f"{RED}Opera GX preferences file not found or invalid.{END}")
+        else:
+            print(f"{RED}Program '{program_name}' is not supported for hardware acceleration configuration.{END}")
+            
+        
+    except Exception as e:
+        print(f"{RED}An error occurred: {e}{END}")
+        time.sleep(10)
+        
+if __name__ == "__main__":
     main()
