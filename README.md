@@ -2,7 +2,7 @@
 
 A small utility to check if hardware acceleration is causing CS2 to freeze for a while after alt-tabbing
 
-This app checks for the hardware acceleration flag in Brave, Chrome, Steam, Mozzila, Spotify and Discord
+This app checks for the hardware acceleration flag in Brave, Chrome, Steam, Mozzila, Spotify, OperaGX and Discord
 
 Originally made by @fREQUENCYCS.
 
